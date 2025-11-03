@@ -1,6 +1,6 @@
 # 视频压缩工具 - 音质优先版
 
-[English](README.md) | [日本語](README_ja.md)
+[English](README.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [ไทย](README_th.md)
 
 macOS视频压缩命令行工具。可以指定目标文件大小,在优先保证音质的前提下压缩视频。
 
