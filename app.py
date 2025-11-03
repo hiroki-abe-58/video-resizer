@@ -4,16 +4,18 @@
 動画圧縮CLIツール - 音質優先版
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 import os
 import sys
 import subprocess
 import re
 import json
+import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Tuple
+from logging.handlers import RotatingFileHandler
 
 
 class VideoCompressor:
@@ -41,6 +43,43 @@ class VideoCompressor:
         self.output_format: Optional[str] = None
         self.batch_mode: bool = False
         self.dry_run: bool = dry_run
+        self.logger = self._setup_logger()
+        self.start_time: Optional[float] = None
+    
+    def _setup_logger(self) -> logging.Logger:
+        """ロガーのセットアップ"""
+        # ログディレクトリ作成
+        log_dir = Path.home() / '.video-compressor'
+        log_dir.mkdir(exist_ok=True)
+        
+        log_file = log_dir / 'history.log'
+        
+        # ロガー作成
+        logger = logging.getLogger('VideoCompressor')
+        logger.setLevel(logging.INFO)
+        
+        # 既存のハンドラをクリア（複数回初期化対策）
+        logger.handlers.clear()
+        
+        # ファイルハンドラ（ローテーション付き）
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=10 * 1024 * 1024,  # 10MB
+            backupCount=5,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.INFO)
+        
+        # フォーマッター
+        formatter = logging.Formatter(
+            '%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        
+        logger.addHandler(file_handler)
+        
+        return logger
     
     def check_ffmpeg(self) -> bool:
         """ffmpegがインストールされているか確認"""
@@ -77,8 +116,10 @@ class VideoCompressor:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return json.loads(result.stdout)
         except subprocess.CalledProcessError as e:
+            self.logger.error(f"動画情報取得失敗: {video_path.name}, エラー: {e}")
             raise RuntimeError(f"動画情報の取得に失敗したわ: {e}")
         except json.JSONDecodeError:
+            self.logger.error(f"JSON解析失敗: {video_path.name}")
             raise RuntimeError("動画情報のパースに失敗。ファイルが壊れてるかも")
     
     def get_file_size_mb(self, file_path: Path) -> float:
@@ -101,7 +142,6 @@ class VideoCompressor:
     
     def estimate_quality_level(self, video_bitrate: int, video_info: dict) -> str:
         """ビットレートから予想画質レベルを判定"""
-        # 動画ストリームを取得
         video_stream = None
         for stream in video_info.get('streams', []):
             if stream.get('codec_type') == 'video':
@@ -111,29 +151,26 @@ class VideoCompressor:
         if not video_stream:
             return "不明"
         
-        # 解像度取得
         width = video_stream.get('width', 0)
         height = video_stream.get('height', 0)
         
-        # 解像度ベースの推奨ビットレート(kbps)
-        # 参考: https://support.google.com/youtube/answer/1722171
-        if height >= 2160:  # 4K
+        if height >= 2160:
             excellent = 35000
             good = 20000
             acceptable = 13000
-        elif height >= 1440:  # 2K
+        elif height >= 1440:
             excellent = 16000
             good = 10000
             acceptable = 6000
-        elif height >= 1080:  # Full HD
+        elif height >= 1080:
             excellent = 8000
             good = 5000
             acceptable = 3000
-        elif height >= 720:  # HD
+        elif height >= 720:
             excellent = 5000
             good = 2500
             acceptable = 1500
-        elif height >= 480:  # SD
+        elif height >= 480:
             excellent = 2500
             good = 1000
             acceptable = 500
@@ -142,15 +179,14 @@ class VideoCompressor:
             good = 500
             acceptable = 250
         
-        # 判定
         if video_bitrate >= excellent:
-            return "🌟 最高画質 (ほぼ劣化なし)"
+            return "最高画質 (ほぼ劣化なし)"
         elif video_bitrate >= good:
-            return "✨ 高画質 (軽微な劣化)"
+            return "高画質 (軽微な劣化)"
         elif video_bitrate >= acceptable:
-            return "👌 標準画質 (許容範囲)"
+            return "標準画質 (許容範囲)"
         else:
-            return "⚠️  低画質 (明らかに劣化)"
+            return "低画質 (明らかに劣化)"
     
     def compress_video(self, input_path: Path, output_path: Path, video_bitrate: int, 
                       video_info: dict, current: int = 1, total: int = 1, audio_bitrate: int = 192):
@@ -179,6 +215,7 @@ class VideoCompressor:
         try:
             self._run_ffmpeg_with_progress(pass1_cmd, "1パス目", video_info)
         except subprocess.CalledProcessError as e:
+            self.logger.error(f"1パス目エンコード失敗: {input_path.name}, エラー: {e}")
             raise RuntimeError(f"1パス目のエンコードに失敗: {e}")
         
         # 2パス目
@@ -198,6 +235,7 @@ class VideoCompressor:
         try:
             self._run_ffmpeg_with_progress(pass2_cmd, "2パス目", video_info)
         except subprocess.CalledProcessError as e:
+            self.logger.error(f"2パス目エンコード失敗: {input_path.name}, エラー: {e}")
             raise RuntimeError(f"2パス目のエンコードに失敗: {e}")
         
         self._cleanup_ffmpeg_logs()
@@ -262,6 +300,11 @@ class VideoCompressor:
     
     def run(self):
         """メイン処理"""
+        self.logger.info("=" * 60)
+        self.logger.info(f"動画圧縮ツール v{__version__} 起動")
+        if self.dry_run:
+            self.logger.info("モード: ドライラン")
+        
         # フェーズ1: ファイル/ディレクトリパス入力
         self.input_files = self._phase1_get_input_files()
         
@@ -269,8 +312,10 @@ class VideoCompressor:
         self.batch_mode = len(self.input_files) > 1
         
         if self.batch_mode:
+            self.logger.info(f"バッチモード: {len(self.input_files)}個のファイル")
             self._run_batch_mode()
         else:
+            self.logger.info(f"単体モード: {self.input_files[0].name}")
             self._run_single_mode()
     
     def _run_single_mode(self):
@@ -350,6 +395,9 @@ class VideoCompressor:
         
         # 全ファイルを処理
         total = len(self.input_files)
+        success_count = 0
+        fail_count = 0
+        
         for i, input_path in enumerate(self.input_files, 1):
             try:
                 video_info = self.get_video_info(input_path)
@@ -358,11 +406,15 @@ class VideoCompressor:
                 if self.dry_run:
                     self._dry_run_report(input_path, target_size_mb, current_format, 
                                         video_info, current=i, total=total)
+                    success_count += 1
                 else:
                     self._compress_and_report(input_path, target_size_mb, current_format, 
                                             video_info, current=i, total=total)
+                    success_count += 1
             except Exception as e:
+                fail_count += 1
                 print(f"\n❌ エラー: {input_path.name} の処理に失敗: {e}")
+                self.logger.error(f"処理失敗: {input_path.name}, エラー: {e}")
                 if not self.dry_run:
                     continue_choice = input("続けますか？ (y/n): ").strip().lower()
                     if continue_choice != 'y':
@@ -370,14 +422,20 @@ class VideoCompressor:
         
         if self.dry_run:
             print(f"\n✅ ドライラン完了! {total}個のファイルをシミュレートしました。")
+            self.logger.info(f"ドライラン完了: 成功 {success_count}, 失敗 {fail_count}")
         else:
-            print(f"\n🎉 バッチ処理完了! {total}個のファイルを処理しました。")
+            print(f"\n🎉 バッチ処理完了! 成功: {success_count}, 失敗: {fail_count}")
+            self.logger.info(f"バッチ処理完了: 成功 {success_count}, 失敗 {fail_count}")
     
     def _batch_mode_individual(self):
         """個別設定モード"""
         print("\n【個別設定モード】")
         
         total = len(self.input_files)
+        success_count = 0
+        fail_count = 0
+        skip_count = 0
+        
         for i, input_path in enumerate(self.input_files, 1):
             try:
                 print(f"\n{'='*60}")
@@ -390,6 +448,8 @@ class VideoCompressor:
                 skip = input("このファイルをスキップしますか？ (y/n): ").strip().lower()
                 if skip == 'y':
                     print("⏭️  スキップしました。")
+                    skip_count += 1
+                    self.logger.info(f"スキップ: {input_path.name}")
                     continue
                 
                 # 目標サイズ入力
@@ -402,21 +462,27 @@ class VideoCompressor:
                 if self.dry_run:
                     self._dry_run_report(input_path, target_size_mb, output_format, 
                                         video_info, current=i, total=total)
+                    success_count += 1
                 else:
                     self._compress_and_report(input_path, target_size_mb, output_format, 
                                             video_info, current=i, total=total)
+                    success_count += 1
                 
             except Exception as e:
+                fail_count += 1
                 print(f"\n❌ エラー: {input_path.name} の処理に失敗: {e}")
+                self.logger.error(f"処理失敗: {input_path.name}, エラー: {e}")
                 if not self.dry_run:
                     continue_choice = input("続けますか？ (y/n): ").strip().lower()
                     if continue_choice != 'y':
                         break
         
         if self.dry_run:
-            print(f"\n✅ ドライラン完了! {total}個のファイルをシミュレートしました。")
+            print(f"\n✅ ドライラン完了! 成功: {success_count}, スキップ: {skip_count}, 失敗: {fail_count}")
+            self.logger.info(f"ドライラン完了: 成功 {success_count}, スキップ {skip_count}, 失敗 {fail_count}")
         else:
-            print(f"\n🎉 バッチ処理完了! {total}個のファイルを処理しました。")
+            print(f"\n🎉 バッチ処理完了! 成功: {success_count}, スキップ: {skip_count}, 失敗: {fail_count}")
+            self.logger.info(f"バッチ処理完了: 成功 {success_count}, スキップ {skip_count}, 失敗 {fail_count}")
     
     def _dry_run_report(self, input_path: Path, target_size_mb: float, 
                        output_format: str, video_info: dict, 
@@ -425,25 +491,20 @@ class VideoCompressor:
         current_size = self.get_file_size_mb(input_path)
         duration = float(video_info['format']['duration'])
         
-        # ビットレート計算
         try:
             video_bitrate = self.calculate_bitrate(target_size_mb, duration)
         except ValueError as e:
             print(f"\n❌ エラー: {e}")
+            self.logger.warning(f"ドライラン: {input_path.name}, エラー: {e}")
             return
         
-        # 画質推定
         quality_level = self.estimate_quality_level(video_bitrate, video_info)
-        
-        # 圧縮率計算
         compression_ratio = (1 - target_size_mb / current_size) * 100
         
-        # 出力ファイル名生成
         timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         stem = input_path.stem
         output_name = f"{stem}--compressed--{target_size_mb:.1f}MB--{timestamp}.{output_format}"
         
-        # レポート出力
         if total > 1:
             print(f"\n📋 [{current}/{total}] ドライラン結果: {input_path.name}")
         else:
@@ -468,6 +529,16 @@ class VideoCompressor:
         print(f"  保存先: {input_path.parent / output_name}")
         print("=" * 60)
         
+        # ログ記録
+        self.logger.info(
+            f"ドライラン: {input_path.name}, "
+            f"現在サイズ: {current_size:.2f}MB, "
+            f"目標サイズ: {target_size_mb:.2f}MB, "
+            f"圧縮率: {compression_ratio:.1f}%, "
+            f"ビデオビットレート: {video_bitrate}kbps, "
+            f"予想画質: {quality_level}"
+        )
+        
         if total == 1:
             print("\n💡 実際に圧縮する場合は --dry-run オプションを外して実行してください。")
     
@@ -475,9 +546,14 @@ class VideoCompressor:
                             output_format: str, video_info: dict, 
                             current: int = 1, total: int = 1):
         """圧縮実行と結果レポート"""
+        import time
+        
+        current_size = self.get_file_size_mb(input_path)
         duration = float(video_info['format']['duration'])
         
-        # ビットレート計算
+        # 処理開始時刻記録
+        start_time = time.time()
+        
         try:
             video_bitrate = self.calculate_bitrate(target_size_mb, duration)
             if total == 1:
@@ -485,6 +561,7 @@ class VideoCompressor:
                 print(f"  動画ビットレート: {video_bitrate} kbps")
                 print(f"  音声ビットレート: 192 kbps (音質優先)")
         except ValueError as e:
+            self.logger.error(f"ビットレート計算失敗: {input_path.name}, エラー: {e}")
             raise RuntimeError(f"ビットレート計算エラー: {e}")
         
         # 出力ファイル名生成
@@ -493,11 +570,29 @@ class VideoCompressor:
         output_name = f"{stem}--compressed--{target_size_mb:.1f}MB--{timestamp}.{output_format}"
         output_path = input_path.parent / output_name
         
+        # ログ: 処理開始
+        self.logger.info(
+            f"圧縮開始: {input_path.name}, "
+            f"現在サイズ: {current_size:.2f}MB, "
+            f"目標サイズ: {target_size_mb:.2f}MB, "
+            f"ビデオビットレート: {video_bitrate}kbps"
+        )
+        
         # 圧縮実行
-        self.compress_video(input_path, output_path, video_bitrate, video_info, current, total)
+        try:
+            self.compress_video(input_path, output_path, video_bitrate, video_info, current, total)
+        except Exception as e:
+            self.logger.error(f"圧縮失敗: {input_path.name}, エラー: {e}")
+            raise
+        
+        # 処理時間計算
+        elapsed_time = time.time() - start_time
         
         # 完了レポート
         final_size = self.get_file_size_mb(output_path)
+        compression_ratio = (1 - final_size / current_size) * 100
+        size_diff = abs(final_size - target_size_mb)
+        
         print("\n" + "=" * 60)
         print("✅ 圧縮が完了し、圧縮した動画ファイルは保存されました!")
         print("=" * 60)
@@ -505,8 +600,21 @@ class VideoCompressor:
         print(f"保存先: {output_path}")
         print(f"目標サイズ: {target_size_mb:.2f} MB")
         print(f"実際のサイズ: {final_size:.2f} MB")
-        print(f"差分: {abs(final_size - target_size_mb):.2f} MB")
+        print(f"差分: {size_diff:.2f} MB")
+        print(f"圧縮率: {compression_ratio:.1f}%")
+        print(f"処理時間: {self._format_time(elapsed_time)}")
         print("=" * 60)
+        
+        # ログ: 処理完了
+        self.logger.info(
+            f"圧縮完了: {input_path.name} -> {output_name}, "
+            f"現在サイズ: {current_size:.2f}MB, "
+            f"目標サイズ: {target_size_mb:.2f}MB, "
+            f"実際サイズ: {final_size:.2f}MB, "
+            f"差分: {size_diff:.2f}MB, "
+            f"圧縮率: {compression_ratio:.1f}%, "
+            f"処理時間: {self._format_time(elapsed_time)}"
+        )
     
     def _phase1_get_input_files(self) -> List[Path]:
         """フェーズ1: ファイル/ディレクトリパス取得"""
@@ -569,6 +677,10 @@ class VideoCompressor:
                 if target_size < audio_size_mb * 1.1:
                     print(f"⚠️  警告: 目標サイズが小さすぎる可能性があります。")
                     print(f"音声ビットレート192kbpsだけで約{audio_size_mb:.2f}MBになります。")
+                    self.logger.warning(
+                        f"小さすぎる目標サイズ: {input_path.name}, "
+                        f"目標: {target_size:.2f}MB, 音声サイズ: {audio_size_mb:.2f}MB"
+                    )
                     confirm = input("それでも続けますか？ (y/n): ").strip().lower()
                     if confirm != 'y':
                         continue
@@ -602,11 +714,11 @@ class VideoCompressor:
         self.target_size_mb = None
         self.output_format = None
         self.batch_mode = False
+        self.start_time = None
 
 
 def main():
     """エントリーポイント"""
-    # コマンドライン引数解析
     dry_run = False
     
     if len(sys.argv) > 1:
@@ -629,6 +741,9 @@ def main():
             print("  --dry-run, -d    実際の圧縮を行わず、計算結果のみ表示")
             print("  --version, -v    バージョン情報を表示")
             print("  --help, -h       このヘルプを表示")
+            print()
+            print("ログファイル:")
+            print("  処理履歴は ~/.video-compressor/history.log に保存されます")
             sys.exit(0)
     
     try:
@@ -642,6 +757,7 @@ def main():
             print("\n❌ エラー: ffmpegがインストールされてないわ")
             print("以下のコマンドでインストールしてくれ:")
             print("  brew install ffmpeg")
+            compressor.logger.error("ffmpegが未インストール")
             sys.exit(1)
         
         while True:
@@ -655,6 +771,8 @@ def main():
             
             if continue_choice != 'y':
                 print("\n👋 お疲れさん!またな!")
+                print(f"処理履歴は {Path.home() / '.video-compressor' / 'history.log'} に保存されています。")
+                compressor.logger.info("ツール終了")
                 break
             
             compressor.reset()
