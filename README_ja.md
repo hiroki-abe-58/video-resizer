@@ -1,11 +1,12 @@
-# 動画圧縮ツール - 音質・画質モード選択対応版
+# 動画圧縮ツール - クロスプラットフォーム対応版
 
-[English](README.md) | [中文](README_zh.md)  | [한국어](README_ko.md) | [ไทย](README_th.md)
+[English](README.md) | [中文](README_zh.md) | [한국어](README_ko.md) | [ไทย](README_th.md)
 
-macOS用の動画圧縮CLIツール。目標ファイルサイズを指定して、画質モード（音質優先/画質優先/バランス）を選択しながら動画を圧縮できます。
+Windows、macOS、Linux対応の動画圧縮CLIツール。目標ファイルサイズを指定して、画質モード（音質優先/画質優先/バランス）を選択しながら動画を圧縮できます。
 
 ## 特徴
 
+- **クロスプラットフォーム対応**: Windows、macOS、Linuxで動作
 - **目標サイズを正確に指定**: MB単位で目標サイズを指定可能(小数点可)
 - **画質モード選択**: 音質優先、画質優先、バランスから選択
   - 音質優先(192kbps): 音楽、講演、ASMR向け
@@ -21,7 +22,12 @@ macOS用の動画圧縮CLIツール。目標ファイルサイズを指定して
 
 ## 必須要件
 
-- macOS
+### 対応OS
+- **Windows**: Windows 10以降
+- **macOS**: macOS 10.14以降
+- **Linux**: Ubuntu 18.04+, Debian 10+, Fedora 30+, Arch Linux
+
+### ソフトウェア
 - Python 3.8以上
 - ffmpeg
 
@@ -29,8 +35,44 @@ macOS用の動画圧縮CLIツール。目標ファイルサイズを指定して
 
 ### 1. ffmpegのインストール
 
+#### Windows
+
+**方法1: Chocolatey (推奨)**
+```bash
+choco install ffmpeg
+```
+
+**方法2: Scoop**
+```bash
+scoop install ffmpeg
+```
+
+**方法3: 手動インストール**
+1. https://www.gyan.dev/ffmpeg/builds/ からダウンロード
+2. C:\ffmpegに解凍
+3. システム環境変数PATHにC:\ffmpeg\binを追加
+
+#### macOS
+
 ```bash
 brew install ffmpeg
+```
+
+#### Linux
+
+**Ubuntu/Debian**
+```bash
+sudo apt update && sudo apt install ffmpeg
+```
+
+**Fedora**
+```bash
+sudo dnf install ffmpeg
+```
+
+**Arch Linux**
+```bash
+sudo pacman -S ffmpeg
 ```
 
 ### 2. スクリプトのダウンロード
@@ -42,10 +84,9 @@ cd video-compressor
 
 # または、直接ダウンロード
 curl -O https://raw.githubusercontent.com/hiroki-abe-58/video-compressor/main/compress_video.py
-chmod +x compress_video.py
 ```
 
-### 3. 実行権限付与
+### 3. 実行権限付与 (macOS/Linux のみ)
 
 ```bash
 chmod +x compress_video.py
@@ -55,13 +96,17 @@ chmod +x compress_video.py
 
 ### 基本的な使い方
 
+**Windows**
 ```bash
-python3 compress_video.py
+python compress_video.py
+# または
+py compress_video.py
 ```
 
-または:
-
+**macOS/Linux**
 ```bash
+python3 compress_video.py
+# または
 ./compress_video.py
 ```
 
@@ -69,16 +114,16 @@ python3 compress_video.py
 
 ```bash
 # 通常モード
-./compress_video.py
+python compress_video.py
 
 # ドライランモード(実際の圧縮はせずプレビューのみ)
-./compress_video.py --dry-run
+python compress_video.py --dry-run
 
-# バージョン表示
-./compress_video.py --version
+# バージョンとプラットフォーム表示
+python compress_video.py --version
 
 # ヘルプ表示
-./compress_video.py --help
+python compress_video.py --help
 ```
 
 ### 実行フロー
@@ -89,7 +134,10 @@ python3 compress_video.py
 > /path/to/video.mp4
 ```
 
-**ヒント**: ファインダーからドラッグ&ドロップでもOK
+**Windows例**: `C:\Users\username\Videos\video.mp4`
+**macOS/Linux例**: `/home/username/Videos/video.mp4`
+
+**ヒント**: エクスプローラー(Windows)やFinder(macOS)からドラッグ&ドロップでもOK
 
 #### フェーズ2: 目標サイズ入力
 ```
@@ -121,27 +169,10 @@ python3 compress_video.py
 #### フェーズ3: 拡張子変換(オプション)
 ```
 拡張子は変換しますか？ (y/何も入力せずEnter):
-> y
-
-変換可能な形式:
-  1. MP4 (H.264)
-  2. MOV (QuickTime)
-  3. AVI
-  4. MKV (Matroska)
-  5. WebM
-  6. FLV (Flash Video)
-
-番号を選択してください: 1
 ```
 
 #### フェーズ4: 圧縮実行
-```
-[1/2] 1パス目: ビットレート解析中...
-1パス目: [████████████████████░░░░░░░░░░░░░░░░░░░░]  48.5% | 残り時間: 00:02:15
-
-[2/2] 2パス目: 最終エンコード中...
-2パス目: [████████████████████████████████████████] 100.0% | 残り時間: 00:00:00
-```
+プログレスバーと残り時間が表示されます。
 
 #### フェーズ5: 完了
 ```
@@ -149,17 +180,12 @@ python3 compress_video.py
 ============================================================
 画質モード: 画質優先
 ファイル名: video--compressed--50.0MB--2025-11-03-15-30-45.mp4
-保存先: /path/to/video--compressed--50.0MB--2025-11-03-15-30-45.mp4
 目標サイズ: 50.00 MB
 実際のサイズ: 49.85 MB
 差分: 0.15 MB
 圧縮率: 66.9%
 処理時間: 00:10:21
 ============================================================
-
-処理履歴は ~/.video-compressor/history.log に保存されています。
-
-もう1本圧縮する？ (y/n):
 ```
 
 ## 画質モード
@@ -174,64 +200,53 @@ python3 compress_video.py
 
 **画質優先モードは音質優先モードと比べて、ビデオに17%多くのビットレートを割り当てます！**
 
-### 各モードの使い分け
+## プラットフォーム固有の注意事項
 
-**音質優先**
-- 音楽のライブパフォーマンスやコンサート
-- 講演やプレゼンテーション
-- ASMRコンテンツ
-- 動画付きポッドキャスト
-- 音質が重要なあらゆるコンテンツ
+### Windows
+- PowerShellまたはコマンドプロンプトを使用
+- ファイルパスはバックスラッシュ (C:\Users\...)
+- エクスプローラーからのドラッグ&ドロップ対応
 
-**画質優先**
-- アニメーション作品
-- 映画やドラマ
-- ゲームプレイ動画やウォークスルー
-- 複雑な動きのあるアクション動画
-- 視覚効果のデモンストレーション
+### macOS
+- ターミナルを使用
+- ファイルパスはスラッシュ (/Users/...)
+- Finderからのドラッグ&ドロップ対応
 
-**バランス**
-- Vlogや個人的な動画
-- チュートリアルやハウツー動画
-- インタビュー
-- 汎用目的の動画
-- 音声と映像が同程度に重要な場合
+### Linux
+- 任意のターミナルエミュレータを使用
+- ファイルパスはスラッシュ (/home/...)
+- 最新のターミナルでフルUnicode対応
+
+## 処理履歴
+
+全ての処理は以下に自動記録されます:
+- **Windows**: `C:\Users\username\.video-compressor\history.log`
+- **macOS**: `/Users/username/.video-compressor/history.log`
+- **Linux**: `/home/username/.video-compressor/history.log`
+
+### ログの確認方法
+
+**Windows (PowerShell)**
+```powershell
+Get-Content ~\.video-compressor\history.log -Tail 20
+```
+
+**Windows (コマンドプロンプト)**
+```cmd
+type %USERPROFILE%\.video-compressor\history.log
+```
+
+**macOS/Linux**
+```bash
+tail -n 20 ~/.video-compressor/history.log
+```
 
 ## ドライランモード
 
 実際の圧縮を行わず、結果をプレビューできます:
 
 ```bash
-./compress_video.py --dry-run
-```
-
-**出力例**:
-```
-ドライラン結果
-============================================================
-入力ファイル: video.mp4
-現在のサイズ: 150.50 MB
-目標サイズ: 50.00 MB
-圧縮率: 66.8%
-動画の長さ: 00:05:30
-
-【画質モード】
-  画質優先: 画質を優先し、音声を最低限に抑える
-
-【エンコード設定】
-  ビデオビットレート: 1337 kbps
-  音声ビットレート: 128 kbps (AAC)
-  コーデック: H.264 (libx264)
-
-【予想画質】
-  高画質 (軽微な劣化)
-
-【出力ファイル】
-  ファイル名: video--compressed--50.0MB--2025-11-03-15-30-45.mp4
-  保存先: /path/to/video--compressed--50.0MB--2025-11-03-15-30-45.mp4
-============================================================
-
-実際に圧縮する場合は --dry-run オプションを外して実行してください。
+python compress_video.py --dry-run
 ```
 
 ## バッチ処理
@@ -239,62 +254,16 @@ python3 compress_video.py
 ディレクトリ内の全動画ファイルを一括処理:
 
 ```bash
-./compress_video.py
+python compress_video.py
 
 # ディレクトリパスを入力
-> /Users/username/Videos/batch-compress/
-
-# 5個の動画ファイルが見つかりました:
-#   1. video1.mp4 (150.50 MB)
-#   2. video2.mov (200.30 MB)
-#   ...
-
-# 設定方法を選択してください:
-#   1. 一括設定 (全てのファイルに同じ設定を適用)
-#   2. 個別設定 (ファイルごとに設定)
-```
-
-## 処理履歴
-
-全ての処理は `~/.video-compressor/history.log` に自動記録されます
-
-### ログの確認方法
-
-```bash
-# 全てのログを表示
-cat ~/.video-compressor/history.log
-
-# 最新のログのみ表示
-tail -n 20 ~/.video-compressor/history.log
-
-# リアルタイムでログを監視
-tail -f ~/.video-compressor/history.log
-
-# エラーのみ検索
-grep ERROR ~/.video-compressor/history.log
-```
-
-### ログ形式
-
-```
-YYYY-MM-DD HH:MM:SS - LEVEL - メッセージ
-
-例:
-2025-11-03 15:30:45 - INFO - 動画圧縮ツール v1.4.0 起動
-2025-11-03 15:30:50 - INFO - 画質モード選択: 画質優先
-2025-11-03 15:31:02 - INFO - 圧縮開始: video.mp4, モード: 画質優先, 現在サイズ: 150.50MB, 目標サイズ: 50.00MB, ビデオビットレート: 1337kbps, 音声ビットレート: 128kbps
-2025-11-03 15:41:23 - INFO - 圧縮完了: video.mp4 -> video--compressed--50.0MB--2025-11-03-15-31-02.mp4, モード: 画質優先, 現在サイズ: 150.50MB, 目標サイズ: 50.00MB, 実際サイズ: 49.85MB, 差分: 0.15MB, 圧縮率: 66.9%, 処理時間: 00:10:21
+> /path/to/videos/
 ```
 
 ## 出力ファイル名の形式
 
 ```
 [元ファイル名]--compressed--[目標サイズ]MB--[yyyy-mm-dd-hh-mm-ss].[拡張子]
-```
-
-例:
-```
-my_video--compressed--50.0MB--2025-11-03-15-30-45.mp4
 ```
 
 ## エラーハンドリング
@@ -305,8 +274,8 @@ my_video--compressed--50.0MB--2025-11-03-15-30-45.mp4
 - ファイルが存在しない
 - サポートされていないファイル形式
 - 目標サイズが現在のサイズより大きい
-- 目標サイズが小さすぎる(音声だけで容量オーバー)
-- 無効な入力値(数字以外など)
+- 目標サイズが小さすぎる
+- 無効な入力値
 - エンコード中のエラー
 
 ## 技術詳細
@@ -316,12 +285,7 @@ my_video--compressed--50.0MB--2025-11-03-15-30-45.mp4
 1. **動画の長さを取得** (ffprobe使用)
 2. **画質モードを選択** (音質優先/画質優先/バランス)
 3. **目標サイズから必要なビデオビットレートを逆算**
-   ```
-   ビデオビットレート = (目標サイズ - 音声サイズ) / 動画の長さ * 0.95
-   ```
 4. **2パスエンコーディングで高品質圧縮**
-   - 1パス目: ビットレート配分を解析
-   - 2パス目: 最適化されたエンコーディング
 
 ### サポートファイル形式
 
@@ -332,25 +296,47 @@ my_video--compressed--50.0MB--2025-11-03-15-30-45.mp4
 ## トラブルシューティング
 
 ### ffmpegが見つからない
+
+**Windows**
+```bash
+# ffmpegがPATHにあるか確認
+where ffmpeg
+
+# 見つからない場合は再インストールまたはPATHに追加
+```
+
+**macOS**
 ```bash
 brew install ffmpeg
 ```
 
+**Linux**
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg
+```
+
 ### 圧縮に時間がかかりすぎる
-- 2パスエンコーディングは時間がかかる(1パス目+2パス目)
+- 2パスエンコーディングは時間がかかる
 - 長い動画だと数十分かかることもある
 - プログレスバーで進捗確認できる
 
-### 目標サイズとずれる
-- ±5%程度の誤差は正常
-- より正確にしたい場合は、目標サイズを少し小さめに設定
+### 権限エラー (macOS/Linux)
+```bash
+chmod +x compress_video.py
+```
 
-### エンコードが失敗する
-- ディスク容量を確認
-- 動画ファイルが壊れていないか確認
-- 別の拡張子で試す
+### Pythonコマンドが見つからない
+
+**Windows**: `python` の代わりに `py` を試す
+**macOS/Linux**: `python` の代わりに `python3` を試す
 
 ## バージョン履歴
+
+### v1.5.0
+- Windows、Linux対応を追加
+- プラットフォーム別のffmpegインストール手順
+- クロスプラットフォームのパス処理
 
 ### v1.4.0
 - 画質モード選択機能を追加（音質優先/画質優先/バランス）
@@ -369,7 +355,7 @@ brew install ffmpeg
 - ディレクトリ入力対応
 
 ### v1.0.0
-- 初期リリース
+- 初期リリース (macOSのみ)
 - 音質優先での基本的な圧縮機能
 
 ## ライセンス
