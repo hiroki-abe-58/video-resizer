@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-動画圧縮CLIツール - 音質・画質モード選択対応版
+動画圧縮CLIツール - 音質・画質モード選択対応版 (Windows/macOS/Linux対応)
 """
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 import os
 import sys
@@ -12,6 +12,7 @@ import subprocess
 import re
 import json
 import logging
+import platform
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -71,9 +72,11 @@ class VideoCompressor:
         self.dry_run: bool = dry_run
         self.logger = self._setup_logger()
         self.start_time: Optional[float] = None
+        self.platform = platform.system()
     
     def _setup_logger(self) -> logging.Logger:
         """ロガーのセットアップ"""
+        # ログディレクトリ作成（Windows/macOS/Linux対応）
         log_dir = Path.home() / '.video-compressor'
         log_dir.mkdir(exist_ok=True)
         
@@ -113,6 +116,36 @@ class VideoCompressor:
             return True
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
+    
+    def get_ffmpeg_install_instructions(self) -> str:
+        """プラットフォームに応じたffmpegインストール方法を取得"""
+        if self.platform == 'Darwin':  # macOS
+            return """以下のコマンドでインストールしてください:
+  brew install ffmpeg"""
+        elif self.platform == 'Windows':
+            return """以下のいずれかの方法でインストールしてください:
+
+方法1: Chocolatey (推奨)
+  choco install ffmpeg
+
+方法2: Scoop
+  scoop install ffmpeg
+
+方法3: 手動インストール
+  1. https://www.gyan.dev/ffmpeg/builds/ から ffmpeg-release-essentials.zip をダウンロード
+  2. 解凍してC:\\ffmpegに配置
+  3. システム環境変数PATHにC:\\ffmpeg\\binを追加"""
+        else:  # Linux
+            return """以下のコマンドでインストールしてください:
+
+Ubuntu/Debian:
+  sudo apt update && sudo apt install ffmpeg
+
+Fedora:
+  sudo dnf install ffmpeg
+
+Arch:
+  sudo pacman -S ffmpeg"""
     
     def get_video_files_from_directory(self, directory: Path) -> List[Path]:
         """ディレクトリ内の全動画ファイルを取得"""
@@ -222,6 +255,9 @@ class VideoCompressor:
             print(f"\n🎬 圧縮中です...")
         print("=" * 60)
         
+        # プラットフォームに応じたnullデバイス
+        null_output = 'NUL' if self.platform == 'Windows' else '/dev/null'
+        
         # 1パス目
         print("\n[1/2] 1パス目: ビットレート解析中...")
         pass1_cmd = [
@@ -233,7 +269,7 @@ class VideoCompressor:
             '-an',
             '-f', 'null',
             '-y',
-            '/dev/null' if sys.platform != 'win32' else 'NUL'
+            null_output
         ]
         
         try:
@@ -325,7 +361,7 @@ class VideoCompressor:
     def run(self):
         """メイン処理"""
         self.logger.info("=" * 60)
-        self.logger.info(f"動画圧縮ツール v{__version__} 起動")
+        self.logger.info(f"動画圧縮ツール v{__version__} 起動 (Platform: {self.platform})")
         if self.dry_run:
             self.logger.info("モード: ドライラン")
         
@@ -799,6 +835,7 @@ def main():
     if len(sys.argv) > 1:
         if sys.argv[1] in ['--version', '-v']:
             print(f"動画圧縮ツール v{__version__}")
+            print(f"Platform: {platform.system()}")
             sys.exit(0)
         elif sys.argv[1] in ['--dry-run', '-d']:
             dry_run = True
@@ -807,10 +844,10 @@ def main():
             print("動画圧縮ツール - 使い方")
             print()
             print("使用法:")
-            print("  ./compress_video.py              通常モード")
-            print("  ./compress_video.py --dry-run    ドライランモード")
-            print("  ./compress_video.py --version    バージョン表示")
-            print("  ./compress_video.py --help       ヘルプ表示")
+            print("  python compress_video.py              通常モード")
+            print("  python compress_video.py --dry-run    ドライランモード")
+            print("  python compress_video.py --version    バージョン表示")
+            print("  python compress_video.py --help       ヘルプ表示")
             print()
             print("オプション:")
             print("  --dry-run, -d    実際の圧縮を行わず、計算結果のみ表示")
@@ -823,21 +860,23 @@ def main():
             print("  3. バランス (音声160kbps) - 一般的な動画向け")
             print()
             print("ログファイル:")
-            print("  処理履歴は ~/.video-compressor/history.log に保存されます")
+            print(f"  処理履歴は {Path.home() / '.video-compressor' / 'history.log'} に保存されます")
+            print()
+            print(f"プラットフォーム: {platform.system()}")
             sys.exit(0)
     
     try:
         print("=" * 60)
-        print("🎥 動画圧縮ツール - 音質・画質モード選択対応版")
+        print("🎥 動画圧縮ツール - Windows/macOS/Linux対応版")
+        print(f"Platform: {platform.system()}")
         print("=" * 60)
         
         compressor = VideoCompressor(dry_run=dry_run)
         
         if not compressor.check_ffmpeg():
             print("\n❌ エラー: ffmpegがインストールされてないわ")
-            print("以下のコマンドでインストールしてくれ:")
-            print("  brew install ffmpeg")
-            compressor.logger.error("ffmpegが未インストール")
+            print(compressor.get_ffmpeg_install_instructions())
+            compressor.logger.error(f"ffmpegが未インストール (Platform: {platform.system()})")
             sys.exit(1)
         
         while True:
