@@ -1,6 +1,6 @@
 # Video Compressor - Audio/Video Quality Mode Selection
 
-[日本語](README_ja.md) | [中文](README_zh.md) | [한국어](README_ko.md)
+[日本語](README_ja.md) | [中文](README_zh.md) | [한국어](README_ko.md) | [ไทย](README_th.md)
 
 A video compression CLI tool for macOS. Compress videos to a target file size with selectable quality modes (audio priority, video priority, or balanced).
 
