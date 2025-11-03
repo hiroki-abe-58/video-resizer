@@ -1,6 +1,6 @@
 # 動画圧縮ツール - 音質・画質モード選択対応版
 
-[English](README.md) | [中文](README_zh.md)
+[English](README.md) | [中文](README_zh.md)  | [한국어](README_ko.md) | [ไทย](README_th.md)
 
 macOS用の動画圧縮CLIツール。目標ファイルサイズを指定して、画質モード（音質優先/画質優先/バランス）を選択しながら動画を圧縮できます。
 
