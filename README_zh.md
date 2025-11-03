@@ -261,3 +261,7 @@ MIT License
 ## 作者
 
 [hiroki-abe-58](https://github.com/hiroki-abe-58)
+
+## 致谢
+
+参考: https://note.com/genelab_999/n/n5db5c3a80793
