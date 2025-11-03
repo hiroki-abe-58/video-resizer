@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-動画圧縮CLIツール - 音質優先版
+動画圧縮CLIツール - 音質・画質モード選択対応版
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 import os
 import sys
@@ -16,6 +16,31 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Tuple
 from logging.handlers import RotatingFileHandler
+
+
+class QualityMode:
+    """画質モード定義"""
+    AUDIO_PRIORITY = "audio_priority"
+    VIDEO_PRIORITY = "video_priority"
+    BALANCED = "balanced"
+    
+    MODES = {
+        AUDIO_PRIORITY: {
+            "name": "音質優先",
+            "audio_bitrate": 192,
+            "description": "音声を高品質に保ち、ビデオを調整（音楽、講演、ASMR向け）"
+        },
+        VIDEO_PRIORITY: {
+            "name": "画質優先",
+            "audio_bitrate": 128,
+            "description": "画質を優先し、音声を最低限に抑える（アニメ、映画、ゲーム実況向け）"
+        },
+        BALANCED: {
+            "name": "バランス",
+            "audio_bitrate": 160,
+            "description": "音質と画質をバランスよく（一般的な動画向け）"
+        }
+    }
 
 
 class VideoCompressor:
@@ -41,6 +66,7 @@ class VideoCompressor:
         self.input_files: List[Path] = []
         self.target_size_mb: Optional[float] = None
         self.output_format: Optional[str] = None
+        self.quality_mode: Optional[str] = None
         self.batch_mode: bool = False
         self.dry_run: bool = dry_run
         self.logger = self._setup_logger()
@@ -48,29 +74,23 @@ class VideoCompressor:
     
     def _setup_logger(self) -> logging.Logger:
         """ロガーのセットアップ"""
-        # ログディレクトリ作成
         log_dir = Path.home() / '.video-compressor'
         log_dir.mkdir(exist_ok=True)
         
         log_file = log_dir / 'history.log'
         
-        # ロガー作成
         logger = logging.getLogger('VideoCompressor')
         logger.setLevel(logging.INFO)
-        
-        # 既存のハンドラをクリア（複数回初期化対策）
         logger.handlers.clear()
         
-        # ファイルハンドラ（ローテーション付き）
         file_handler = RotatingFileHandler(
             log_file,
-            maxBytes=10 * 1024 * 1024,  # 10MB
+            maxBytes=10 * 1024 * 1024,
             backupCount=5,
             encoding='utf-8'
         )
         file_handler.setLevel(logging.INFO)
         
-        # フォーマッター
         formatter = logging.Formatter(
             '%(asctime)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -127,7 +147,11 @@ class VideoCompressor:
         size_bytes = file_path.stat().st_size
         return size_bytes / (1024 * 1024)
     
-    def calculate_bitrate(self, target_size_mb: float, duration: float, audio_bitrate: int = 192) -> int:
+    def get_audio_bitrate_for_mode(self, mode: str) -> int:
+        """モードに応じた音声ビットレートを取得"""
+        return QualityMode.MODES[mode]["audio_bitrate"]
+    
+    def calculate_bitrate(self, target_size_mb: float, duration: float, audio_bitrate: int) -> int:
         """目標ファイルサイズから必要なビデオビットレートを計算"""
         target_size_bits = target_size_mb * 8 * 1024 * 1024
         audio_bitrate_bps = audio_bitrate * 1000
@@ -189,7 +213,7 @@ class VideoCompressor:
             return "低画質 (明らかに劣化)"
     
     def compress_video(self, input_path: Path, output_path: Path, video_bitrate: int, 
-                      video_info: dict, current: int = 1, total: int = 1, audio_bitrate: int = 192):
+                      video_info: dict, audio_bitrate: int, current: int = 1, total: int = 1):
         """動画を圧縮(2パスエンコーディング)"""
         
         if total > 1:
@@ -326,14 +350,17 @@ class VideoCompressor:
         # フェーズ2: 目標サイズ入力
         target_size_mb = self._phase2_get_target_size(input_path, video_info)
         
+        # フェーズ2.5: 画質モード選択
+        quality_mode = self._phase2_5_select_quality_mode()
+        
         # フェーズ3: 拡張子変換
         output_format = self._phase3_convert_format(input_path)
         
         # フェーズ4 & 5: 圧縮実行 or ドライラン
         if self.dry_run:
-            self._dry_run_report(input_path, target_size_mb, output_format, video_info)
+            self._dry_run_report(input_path, target_size_mb, output_format, video_info, quality_mode)
         else:
-            self._compress_and_report(input_path, target_size_mb, output_format, video_info)
+            self._compress_and_report(input_path, target_size_mb, output_format, video_info, quality_mode)
     
     def _run_batch_mode(self):
         """バッチ処理モード"""
@@ -375,6 +402,9 @@ class VideoCompressor:
             except ValueError:
                 print("❌ エラー: 数字を入力してください。")
         
+        # 画質モード選択
+        quality_mode = self._phase2_5_select_quality_mode()
+        
         # 拡張子変換
         print("\n全てのファイルの拡張子を変換しますか？")
         convert = input("(y/何も入力せずEnter): ").strip().lower()
@@ -405,11 +435,11 @@ class VideoCompressor:
                 
                 if self.dry_run:
                     self._dry_run_report(input_path, target_size_mb, current_format, 
-                                        video_info, current=i, total=total)
+                                        video_info, quality_mode, current=i, total=total)
                     success_count += 1
                 else:
                     self._compress_and_report(input_path, target_size_mb, current_format, 
-                                            video_info, current=i, total=total)
+                                            video_info, quality_mode, current=i, total=total)
                     success_count += 1
             except Exception as e:
                 fail_count += 1
@@ -455,17 +485,20 @@ class VideoCompressor:
                 # 目標サイズ入力
                 target_size_mb = self._phase2_get_target_size(input_path, video_info)
                 
+                # 画質モード選択
+                quality_mode = self._phase2_5_select_quality_mode()
+                
                 # 拡張子変換
                 output_format = self._phase3_convert_format(input_path)
                 
                 # 圧縮実行 or ドライラン
                 if self.dry_run:
                     self._dry_run_report(input_path, target_size_mb, output_format, 
-                                        video_info, current=i, total=total)
+                                        video_info, quality_mode, current=i, total=total)
                     success_count += 1
                 else:
                     self._compress_and_report(input_path, target_size_mb, output_format, 
-                                            video_info, current=i, total=total)
+                                            video_info, quality_mode, current=i, total=total)
                     success_count += 1
                 
             except Exception as e:
@@ -485,14 +518,15 @@ class VideoCompressor:
             self.logger.info(f"バッチ処理完了: 成功 {success_count}, スキップ {skip_count}, 失敗 {fail_count}")
     
     def _dry_run_report(self, input_path: Path, target_size_mb: float, 
-                       output_format: str, video_info: dict, 
+                       output_format: str, video_info: dict, quality_mode: str,
                        current: int = 1, total: int = 1):
         """ドライラン結果レポート"""
         current_size = self.get_file_size_mb(input_path)
         duration = float(video_info['format']['duration'])
+        audio_bitrate = self.get_audio_bitrate_for_mode(quality_mode)
         
         try:
-            video_bitrate = self.calculate_bitrate(target_size_mb, duration)
+            video_bitrate = self.calculate_bitrate(target_size_mb, duration, audio_bitrate)
         except ValueError as e:
             print(f"\n❌ エラー: {e}")
             self.logger.warning(f"ドライラン: {input_path.name}, エラー: {e}")
@@ -505,6 +539,8 @@ class VideoCompressor:
         stem = input_path.stem
         output_name = f"{stem}--compressed--{target_size_mb:.1f}MB--{timestamp}.{output_format}"
         
+        mode_info = QualityMode.MODES[quality_mode]
+        
         if total > 1:
             print(f"\n📋 [{current}/{total}] ドライラン結果: {input_path.name}")
         else:
@@ -516,9 +552,12 @@ class VideoCompressor:
         print(f"圧縮率: {compression_ratio:.1f}%")
         print(f"動画の長さ: {self._format_time(duration)}")
         print()
+        print("【画質モード】")
+        print(f"  {mode_info['name']}: {mode_info['description']}")
+        print()
         print("【エンコード設定】")
         print(f"  ビデオビットレート: {video_bitrate} kbps")
-        print(f"  音声ビットレート: 192 kbps (AAC)")
+        print(f"  音声ビットレート: {audio_bitrate} kbps (AAC)")
         print(f"  コーデック: H.264 (libx264)")
         print()
         print("【予想画質】")
@@ -532,10 +571,12 @@ class VideoCompressor:
         # ログ記録
         self.logger.info(
             f"ドライラン: {input_path.name}, "
+            f"モード: {mode_info['name']}, "
             f"現在サイズ: {current_size:.2f}MB, "
             f"目標サイズ: {target_size_mb:.2f}MB, "
             f"圧縮率: {compression_ratio:.1f}%, "
             f"ビデオビットレート: {video_bitrate}kbps, "
+            f"音声ビットレート: {audio_bitrate}kbps, "
             f"予想画質: {quality_level}"
         )
         
@@ -543,23 +584,27 @@ class VideoCompressor:
             print("\n💡 実際に圧縮する場合は --dry-run オプションを外して実行してください。")
     
     def _compress_and_report(self, input_path: Path, target_size_mb: float, 
-                            output_format: str, video_info: dict, 
+                            output_format: str, video_info: dict, quality_mode: str,
                             current: int = 1, total: int = 1):
         """圧縮実行と結果レポート"""
         import time
         
         current_size = self.get_file_size_mb(input_path)
         duration = float(video_info['format']['duration'])
+        audio_bitrate = self.get_audio_bitrate_for_mode(quality_mode)
         
         # 処理開始時刻記録
         start_time = time.time()
         
         try:
-            video_bitrate = self.calculate_bitrate(target_size_mb, duration)
+            video_bitrate = self.calculate_bitrate(target_size_mb, duration, audio_bitrate)
+            mode_info = QualityMode.MODES[quality_mode]
+            
             if total == 1:
                 print(f"\n📊 計算結果:")
+                print(f"  画質モード: {mode_info['name']}")
                 print(f"  動画ビットレート: {video_bitrate} kbps")
-                print(f"  音声ビットレート: 192 kbps (音質優先)")
+                print(f"  音声ビットレート: {audio_bitrate} kbps")
         except ValueError as e:
             self.logger.error(f"ビットレート計算失敗: {input_path.name}, エラー: {e}")
             raise RuntimeError(f"ビットレート計算エラー: {e}")
@@ -573,14 +618,16 @@ class VideoCompressor:
         # ログ: 処理開始
         self.logger.info(
             f"圧縮開始: {input_path.name}, "
+            f"モード: {mode_info['name']}, "
             f"現在サイズ: {current_size:.2f}MB, "
             f"目標サイズ: {target_size_mb:.2f}MB, "
-            f"ビデオビットレート: {video_bitrate}kbps"
+            f"ビデオビットレート: {video_bitrate}kbps, "
+            f"音声ビットレート: {audio_bitrate}kbps"
         )
         
         # 圧縮実行
         try:
-            self.compress_video(input_path, output_path, video_bitrate, video_info, current, total)
+            self.compress_video(input_path, output_path, video_bitrate, video_info, audio_bitrate, current, total)
         except Exception as e:
             self.logger.error(f"圧縮失敗: {input_path.name}, エラー: {e}")
             raise
@@ -596,6 +643,7 @@ class VideoCompressor:
         print("\n" + "=" * 60)
         print("✅ 圧縮が完了し、圧縮した動画ファイルは保存されました!")
         print("=" * 60)
+        print(f"画質モード: {mode_info['name']}")
         print(f"ファイル名: {output_name}")
         print(f"保存先: {output_path}")
         print(f"目標サイズ: {target_size_mb:.2f} MB")
@@ -608,6 +656,7 @@ class VideoCompressor:
         # ログ: 処理完了
         self.logger.info(
             f"圧縮完了: {input_path.name} -> {output_name}, "
+            f"モード: {mode_info['name']}, "
             f"現在サイズ: {current_size:.2f}MB, "
             f"目標サイズ: {target_size_mb:.2f}MB, "
             f"実際サイズ: {final_size:.2f}MB, "
@@ -673,22 +722,47 @@ class VideoCompressor:
                     print("圧縮する意味ないで。もっと小さい値を入力してくれ。")
                     continue
                 
-                audio_size_mb = (192 * 1000 * duration) / (8 * 1024 * 1024)
-                if target_size < audio_size_mb * 1.1:
-                    print(f"⚠️  警告: 目標サイズが小さすぎる可能性があります。")
-                    print(f"音声ビットレート192kbpsだけで約{audio_size_mb:.2f}MBになります。")
-                    self.logger.warning(
-                        f"小さすぎる目標サイズ: {input_path.name}, "
-                        f"目標: {target_size:.2f}MB, 音声サイズ: {audio_size_mb:.2f}MB"
-                    )
-                    confirm = input("それでも続けますか？ (y/n): ").strip().lower()
-                    if confirm != 'y':
-                        continue
-                
                 return target_size
                 
             except ValueError:
                 print("❌ エラー: 数字を入力してください。")
+    
+    def _phase2_5_select_quality_mode(self) -> str:
+        """フェーズ2.5: 画質モード選択"""
+        print("\n【フェーズ2.5】画質モード選択")
+        print("どのモードで圧縮しますか？")
+        print()
+        print("  1. 音質優先 (音声192kbps)")
+        print("     音楽、講演、ASMR などの音が重要なコンテンツ向け")
+        print()
+        print("  2. 画質優先 (音声128kbps)")
+        print("     アニメ、映画、ゲーム実況 などの映像が重要なコンテンツ向け")
+        print()
+        print("  3. バランス (音声160kbps)")
+        print("     一般的な動画向け。音質と画質のバランスが取れた設定")
+        print()
+        
+        mode_map = {
+            '1': QualityMode.AUDIO_PRIORITY,
+            '2': QualityMode.VIDEO_PRIORITY,
+            '3': QualityMode.BALANCED
+        }
+        
+        while True:
+            choice = input("番号を選択してください (デフォルト: 1): ").strip()
+            
+            # デフォルト値
+            if not choice:
+                choice = '1'
+            
+            if choice in mode_map:
+                selected_mode = mode_map[choice]
+                mode_info = QualityMode.MODES[selected_mode]
+                print(f"\n✅ {mode_info['name']}モードを選択しました。")
+                self.logger.info(f"画質モード選択: {mode_info['name']}")
+                return selected_mode
+            
+            print("❌ エラー: 1, 2, 3 のいずれかを入力してください。")
     
     def _phase3_convert_format(self, input_path: Path) -> str:
         """フェーズ3: 拡張子変換"""
@@ -713,6 +787,7 @@ class VideoCompressor:
         self.input_files = []
         self.target_size_mb = None
         self.output_format = None
+        self.quality_mode = None
         self.batch_mode = False
         self.start_time = None
 
@@ -742,13 +817,18 @@ def main():
             print("  --version, -v    バージョン情報を表示")
             print("  --help, -h       このヘルプを表示")
             print()
+            print("画質モード:")
+            print("  1. 音質優先 (音声192kbps) - 音楽、講演、ASMR向け")
+            print("  2. 画質優先 (音声128kbps) - アニメ、映画、ゲーム実況向け")
+            print("  3. バランス (音声160kbps) - 一般的な動画向け")
+            print()
             print("ログファイル:")
             print("  処理履歴は ~/.video-compressor/history.log に保存されます")
             sys.exit(0)
     
     try:
         print("=" * 60)
-        print("🎥 動画圧縮ツール - 音質優先版")
+        print("🎥 動画圧縮ツール - 音質・画質モード選択対応版")
         print("=" * 60)
         
         compressor = VideoCompressor(dry_run=dry_run)
